@@ -9,25 +9,49 @@ router = APIRouter()
 
 @router.post("/voice-chat")
 async def voice_chat(file: UploadFile, language: str = Form("english")):
-    # 1) Save uploaded audio temporarily
-    os.makedirs("static/voice", exist_ok=True)
-    temp_path = f"static/voice/{file.filename}"
-    with open(temp_path, "wb") as f:
-        f.write(await file.read())
+    temp_path = None
+    try:
+        # 1) Save uploaded audio temporarily
+        os.makedirs("static/voice", exist_ok=True)
+        temp_path = f"static/voice/{file.filename}"
+        
+        with open(temp_path, "wb") as f:
+            f.write(await file.read())
 
-    # 2) Convert speech → text
-    user_msg = speech_to_text(temp_path)
-    if not user_msg:
-        os.remove(temp_path)
-        return {"audio_url": None, "reply": None, "error": "Unable to understand voice message"}
+        # 2) Convert speech → text
+        user_msg = speech_to_text(temp_path)
+        
+        if not user_msg or user_msg.strip() == "":
+            return {
+                "audio_url": None, 
+                "reply": None, 
+                "error": "Unable to understand voice message. Please speak clearly and try again."
+            }
 
-    # 3) Get RAG answer (same pipeline as text chat)
-    bot_reply = answer_user_query(user_msg, collection, language)
+        # 3) Get RAG answer (same pipeline as text chat)
+        bot_reply = answer_user_query(user_msg, collection, language)
 
-    # 4) Convert answer text → speech
-    audio_file = text_to_speech(bot_reply, language)
+        # 4) Convert answer text → speech
+        audio_file = text_to_speech(bot_reply, language)
 
-    # 5) Clean up temp input file
-    os.remove(temp_path)
-
-    return {"audio_url": audio_file, "reply": bot_reply}
+        return {
+            "audio_url": audio_file, 
+            "reply": bot_reply,
+            "transcription": user_msg  # Optional: return what was heard
+        }
+        
+    except Exception as e:
+        print(f"Voice chat error: {e}")
+        return {
+            "audio_url": None, 
+            "reply": None, 
+            "error": f"Error processing voice message: {str(e)}"
+        }
+    
+    finally:
+        # 5) Clean up temp input file
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except:
+                pass  # Ignore cleanup errors
